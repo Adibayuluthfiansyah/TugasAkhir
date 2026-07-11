@@ -1,12 +1,11 @@
 services:
   backend:
-    image: ghcr.io/adibayuluthfiansyah/tugasakhir:latest
+    image: ghcr.io/adibayuluthfiansyah/dinsos-backend:latest
     container_name: dinsos-backend
-
     restart: unless-stopped
-
     env_file:
       - .env
-
     ports:
       - "8000:8000"
+    volumes:
+      - ./notifikasi-dinsos-firebase-adminsdk-fbsvc-e877342c09.json:/app/notifikasi-dinsos-firebase-adminsdk-fbsvc-e877342c09.json:ro

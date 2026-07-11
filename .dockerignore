@@ -17,3 +17,6 @@ bin/
 coverage.out
 
 .gitignore
+
+# Firebase credentials (mounted at runtime)
+notifikasi-dinsos-firebase-adminsdk-fbsvc-e877342c09.json

@@ -35,5 +35,5 @@ func ConnectDatabase() {
 	registerQueryProtector(database)
 	DB = database
 
-	log.Println("✅ Database Railway MySQL terkoneksi")
+	log.Println("✅ Database MySQL terkoneksi")
 }

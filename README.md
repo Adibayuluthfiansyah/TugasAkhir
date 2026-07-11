@@ -239,12 +239,3 @@ go build -o dinsos-backend main.go
 ```
 
 ---
-
-## Deployment
-
-Backend Go membutuhkan server dengan akses runtime. Beberapa opsi yang sesuai:
-
-- **VPS** — DigitalOcean, Vultr, Contabo dengan binary langsung
-- **Railway** — support Go, harga terjangkau
-- **Fly.io** — free tier tersedia untuk container kecil
-- **Docker** — containerize untuk deploy ke mana saja
