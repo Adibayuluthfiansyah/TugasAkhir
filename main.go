@@ -19,6 +19,13 @@ func main() {
 	r := gin.Default()
 	r.MaxMultipartMemory = 100 << 20
 
+	r.GET("/ping", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"message": "pong",
+			"status":  "Server and DB are up and running securely!",
+		})
+	})
+
 	config.ConnectDatabase()
 	utils.StartActivityLogCleaner()
 	utils.StartNotificationCleaner()

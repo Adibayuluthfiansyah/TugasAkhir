@@ -12,7 +12,8 @@ func UserRoutes(router *gin.RouterGroup) {
 
 	users.POST("/push-token", middleware.AuthMiddleware(), controllers.StorePushToken)
 
-	// users.POST("/superadmin", controllers.CreateSuperAdmin)
+	// deactivated for security reasons, only superadmin can create users
+	users.POST("/superadmin", controllers.CreateSuperAdmin)
 
 	users.POST("/admin", middleware.AuthMiddleware(), middleware.RoleMiddleware("superadmin"), controllers.CreateAdmin)
 
