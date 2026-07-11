@@ -73,47 +73,48 @@ func CreateUserWithRole(c *gin.Context, role string) {
 	})
 }
 
-// func CreateSuperAdmin(c *gin.Context) { CreateUserWithRole(c, "superadmin") }
+func CreateSuperAdmin(c *gin.Context) { CreateUserWithRole(c, "superadmin") }
+
 // INJECT SUPERADMIN
 // !!! DELETE AFTER DEPLOYMENT !!!!
-func CreateSuperAdmin(c *gin.Context) {
-	var count int64
-	config.DB.Model(&models.User{}).
-		Where("role = ?", "superadmin").
-		Count(&count)
+// func CreateSuperAdmin(c *gin.Context) {
+// 	var count int64
+// 	config.DB.Model(&models.User{}).
+// 		Where("role = ?", "superadmin").
+// 		Count(&count)
 
-	if count > 0 {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Superadmin sudah ada",
-		})
-		return
-	}
+// 	if count > 0 {
+// 		c.JSON(http.StatusForbidden, gin.H{
+// 			"error": "Superadmin sudah ada",
+// 		})
+// 		return
+// 	}
 
-	var input models.User
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+// 	var input models.User
+// 	if err := c.ShouldBindJSON(&input); err != nil {
+// 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+// 		return
+// 	}
 
-	input.ID = uuid.NewString()
-	input.Role = "superadmin"
+// 	input.ID = uuid.NewString()
+// 	input.Role = "superadmin"
 
-	hashed, err := hashPassword(input.Password)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal hash password"})
-		return
-	}
-	input.Password = hashed
+// 	hashed, err := hashPassword(input.Password)
+// 	if err != nil {
+// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal hash password"})
+// 		return
+// 	}
+// 	input.Password = hashed
 
-	if err := config.DB.Create(&input).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat superadmin"})
-		return
-	}
+// 	if err := config.DB.Create(&input).Error; err != nil {
+// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat superadmin"})
+// 		return
+// 	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"message": "Superadmin pertama berhasil dibuat",
-	})
-}
+// 	c.JSON(http.StatusCreated, gin.H{
+// 		"message": "Superadmin pertama berhasil dibuat",
+// 	})
+// }
 
 func CreateAdmin(c *gin.Context) { CreateUserWithRole(c, "admin") }
 func CreateStaff(c *gin.Context) { CreateUserWithRole(c, "staff") }
