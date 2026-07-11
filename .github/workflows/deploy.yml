@@ -33,4 +33,4 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64
-          tags: ghcr.io/${{ github.repository_owner }}/dinsos-backend:latest
+          tags: ghcr.io/adibayuluthfiansyah/dinsos-backend:latest

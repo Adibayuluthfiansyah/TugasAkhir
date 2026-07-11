@@ -1,6 +1,6 @@
 services:
   backend:
-    image: ghcr.io/adibayuluthfiansyah/dinsos-backend:latest
+    tags: ghcr.io/adibayuluthfiansyah/dinsos-backend:latest
     container_name: dinsos-backend
     restart: unless-stopped
     env_file:
