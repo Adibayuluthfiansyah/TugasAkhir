@@ -1,11 +1,35 @@
 services:
+  mysql:
+    image: mysql:8.4
+    container_name: dinsos-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: yourpassword
+      MYSQL_DATABASE: arsip_dinsos
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   backend:
-    tags: ghcr.io/adibayuluthfiansyah/dinsos-backend:latest
+    image: ghcr.io/adibayuluthfiansyah/dinsos-backend:latest
     container_name: dinsos-backend
     restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
     env_file:
       - .env
-    ports:
-      - "8000:8000"
     volumes:
       - ./notifikasi-dinsos-firebase-adminsdk-fbsvc-e877342c09.json:/app/notifikasi-dinsos-firebase-adminsdk-fbsvc-e877342c09.json:ro
+    ports:
+      - "8000:8000"
+
+volumes:
+  mysql_data:

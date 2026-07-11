@@ -41,6 +41,8 @@ func main() {
 		log.Fatal("Gagal migrasi tabel:", err)
 	}
 
+	config.RegisterQueryProtector()
+
 	r.Use(middleware.RateLimiter())
 	r.Use(middleware.CORSMiddleware())
 	r.Use(middleware.XSSBlocker())

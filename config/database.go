@@ -32,8 +32,12 @@ func ConnectDatabase() {
 		log.Fatal("❌ Gagal koneksi database:", err)
 	}
 
-	registerQueryProtector(database)
 	DB = database
 
 	log.Println("✅ Database MySQL terkoneksi")
+}
+
+func RegisterQueryProtector() {
+	registerQueryProtector(DB)
+	log.Println("✅ SQL Query Protector aktif")
 }
