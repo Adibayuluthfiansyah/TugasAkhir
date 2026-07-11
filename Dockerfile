@@ -3,10 +3,10 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o dinsos-backend main.go
-FROM alpine:latest
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o dinsos-backend main.go
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=builder /app/dinsos-backend .
 EXPOSE 8000
-
 CMD ["./dinsos-backend"]

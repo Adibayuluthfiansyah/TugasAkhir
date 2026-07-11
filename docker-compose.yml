@@ -1,0 +1,12 @@
+services:
+  backend:
+    image: ghcr.io/adibayuluthfiansyah/tugasakhir:latest
+    container_name: dinsos-backend
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    ports:
+      - "8000:8000"
