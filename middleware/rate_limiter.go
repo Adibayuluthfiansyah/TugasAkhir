@@ -8,7 +8,8 @@ import (
 )
 
 func RateLimiter() gin.HandlerFunc {
-	rate, err := limiter.NewRateFromFormatted("60-M") // 60 request per menit
+	rate, err := limiter.NewRateFromFormatted("100000-M") // unlimited untuk load testing
+	// rate, err := limiter.NewRateFromFormatted("60-M") // 60 request per menit — kembalikan setelah testing
 	if err != nil {
 		panic(err)
 	}
