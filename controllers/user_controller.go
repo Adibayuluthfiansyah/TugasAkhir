@@ -1,19 +1,23 @@
 package controllers
 
 import (
+	"dinsos_kuburaya/config"
+	"dinsos_kuburaya/models"
+	"dinsos_kuburaya/services"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
-	"dinsos_kuburaya/config"
-	"dinsos_kuburaya/models"
-	"dinsos_kuburaya/services"
-
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+)
+
+const (
+	errUserNotFound = "User tidak ditemukan"
+	errHashPassword = "Gagal mengenkripsi password"
 )
 
 var allowedRoles = map[string]bool{
@@ -29,6 +33,38 @@ type StorePushTokenRequest struct {
 func hashPassword(pass string) (string, error) {
 	hashed, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
 	return string(hashed), err
+}
+
+// HELPER REFACTOR COGITIVE COMPLEXITY - REFACTOR THESIS
+func handlePasswordUpdate(user models.User,
+	oldPassword string,
+	newPassword string,
+	updates map[string]interface{},
+) error {
+	if oldPassword == "" && newPassword == "" {
+		return nil
+	}
+
+	if oldPassword == "" || newPassword == "" {
+		return fmt.Errorf("Password lama dan baru harus diisi")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)); err != nil {
+		return fmt.Errorf("Password lama salah")
+	}
+
+	if len(newPassword) < 6 {
+		return fmt.Errorf("Password baru minimal 6 karakter")
+	}
+
+	hashed, err := hashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf(errHashPassword)
+	}
+
+	updates["password"] = hashed
+
+	return nil
 }
 
 // CREATE USERS
@@ -49,7 +85,7 @@ func CreateUserWithRole(c *gin.Context, role string) {
 
 	hashed, err := hashPassword(input.Password)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengenkripsi password"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": errHashPassword})
 		return
 	}
 	input.Password = hashed
@@ -141,9 +177,9 @@ func GetUserByID(c *gin.Context) {
 	var user models.User
 
 	if err := config.DB.Select("id", "name", "username", "role", "created_at", "updated_at").
-		Where("id = ?", id).First(&user).Error; err != nil {
+		Where(idQuery, id).First(&user).Error; err != nil {
 
-		c.JSON(http.StatusNotFound, gin.H{"error": "User tidak ditemukan"})
+		c.JSON(http.StatusNotFound, gin.H{"error": errUserNotFound})
 		return
 	}
 
@@ -199,8 +235,8 @@ func UpdateUser(c *gin.Context) {
 	id := c.Param("id")
 	var user models.User
 
-	if err := config.DB.Where("id = ?", id).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User tidak ditemukan"})
+	if err := config.DB.Where(idQuery, id).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": errUserNotFound})
 		return
 	}
 
@@ -241,32 +277,33 @@ func UpdateUser(c *gin.Context) {
 		updates["role"] = input.Role
 	}
 
-	// Password logic
-	if oldPassword != "" || newPassword != "" {
-		if oldPassword == "" || newPassword == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Password lama dan baru harus diisi"})
-			return
+	// Password logic - REFACTOR COGNITIVE COMPLEXITY
+	if err := handlePasswordUpdate(
+		user,
+		oldPassword,
+		newPassword,
+		updates,
+	); err != nil {
+
+		switch err.Error() {
+
+		case "Password lama dan baru harus diisi":
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+
+		case "Password lama salah":
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+
+		case "Password baru minimal 6 karakter":
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
 
-		err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword))
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Password lama salah"})
-			return
-		}
-
-		if len(newPassword) < 6 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Password baru minimal 6 karakter"})
-			return
-		}
-
-		hashed, err := hashPassword(newPassword)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengenkripsi password"})
-			return
-		}
-
-		updates["password"] = hashed
+		return
 	}
+
+	// END REFACTOR COGNITIVE COMPLEXITY
 
 	// Photo upload
 	file, err := c.FormFile("photo")
@@ -301,7 +338,6 @@ func UpdateUser(c *gin.Context) {
 		}
 
 		if user.PhotoID != nil && *user.PhotoID != "" {
-
 			if *user.PhotoID != uploadRes.PublicID {
 				config.DeleteFromCloudinary(*user.PhotoID, "image")
 			}
@@ -318,7 +354,7 @@ func UpdateUser(c *gin.Context) {
 		}
 	}
 
-	config.DB.Where("id = ?", id).First(&user)
+	config.DB.Where(idQuery, id).First(&user)
 
 	currentUser := c.MustGet("user").(models.User)
 	services.CreateActivity(
@@ -345,15 +381,15 @@ func ResetPassword(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := config.DB.Where("id = ?", id).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User tidak ditemukan"})
+	if err := config.DB.Where(idQuery, id).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": errUserNotFound})
 		return
 	}
 
 	defaultPassword := "123456"
 	hashed, err := hashPassword(defaultPassword)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengenkripsi password"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": errHashPassword})
 		return
 	}
 
@@ -379,12 +415,12 @@ func DeleteUser(c *gin.Context) {
 	id := c.Param("id")
 
 	var user models.User
-	if err := config.DB.Where("id = ?", id).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User tidak ditemukan"})
+	if err := config.DB.Where(idQuery, id).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": errUserNotFound})
 		return
 	}
 
-	if err := config.DB.Delete(&models.User{}, "id = ?", id).Error; err != nil {
+	if err := config.DB.Delete(&models.User{}, idQuery, id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menghapus user"})
 		return
 	}
@@ -428,7 +464,7 @@ func StorePushToken(c *gin.Context) {
 	}
 
 	if err := config.DB.Model(&models.User{}).
-		Where("id = ?", user.ID).
+		Where(idQuery, user.ID).
 		Update("push_token", req.Token).Error; err != nil {
 		log.Println("[PushToken] DB update error:", err)
 		return

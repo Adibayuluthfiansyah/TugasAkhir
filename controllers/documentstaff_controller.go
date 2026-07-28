@@ -2,18 +2,77 @@ package controllers
 
 import (
 	"bytes"
+	"dinsos_kuburaya/config"
+	"dinsos_kuburaya/models"
+	"dinsos_kuburaya/services"
+	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
 
-	"dinsos_kuburaya/config"
-	"dinsos_kuburaya/models"
-	"dinsos_kuburaya/services"
-
 	"github.com/gin-gonic/gin"
 )
+
+// HELPER FOR HANDLE DOCUMENT STAFF UPLOAD - REFACTOR THESIS
+func handleDocumentStaffUpload(fileHeader *multipart.FileHeader, document *models.DocumentStaff) (map[string]interface{}, error) {
+	src, err := fileHeader.Open()
+	if err != nil {
+		return nil, fmt.Errorf("tidak dapat membuka file")
+	}
+	defer src.Close()
+
+	fileBytes, err := io.ReadAll(src)
+	if err != nil {
+		return nil, fmt.Errorf("gagal membaca file buffer")
+	}
+
+	reader := bytes.NewReader(fileBytes)
+
+	ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
+
+	var resourceType string
+	var folder string
+
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp":
+		resourceType = "image"
+		folder = "gambar"
+
+	case ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx":
+		resourceType = "raw"
+		folder = "document_staff"
+
+	default:
+		return nil, fmt.Errorf("format file tidak didukung")
+	}
+
+	uploadResult, err := config.UploadToCloudinary(
+		reader,
+		fileHeader.Filename,
+		folder,
+		resourceType,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("upload gagal: %v", err)
+	}
+
+	if document != nil && document.PublicID != "" {
+		config.DeleteFromCloudinary(
+			document.PublicID,
+			document.ResourceType,
+		)
+	}
+
+	return map[string]interface{}{
+		"file_name":     fileHeader.Filename,
+		"file_url":      uploadResult.SecureURL,
+		"public_id":     uploadResult.PublicID,
+		"resource_type": resourceType,
+	}, nil
+}
 
 // ======================================================
 // CREATE STAFF DOCUMENT
@@ -168,7 +227,6 @@ func GetDocumentStaffs(c *gin.Context) {
 		Order("document_staffs.created_at DESC").
 		Preload("User").
 		Find(&documents).Error
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil dokumen"})
 		return
@@ -201,8 +259,8 @@ func GetDocumentStaffByID(c *gin.Context) {
 	id := c.Param("id")
 	var document models.DocumentStaff
 
-	if err := config.DB.Preload("User").First(&document, "id = ?", id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Dokumen tidak ditemukan"})
+	if err := config.DB.Preload("User").First(&document, idQuery, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": docNotFound})
 		return
 	}
 
@@ -242,8 +300,8 @@ func UpdateDocumentStaff(c *gin.Context) {
 	id := c.Param("id")
 	var document models.DocumentStaff
 
-	if err := config.DB.First(&document, "id = ?", id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Dokumen tidak ditemukan"})
+	if err := config.DB.First(&document, idQuery, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": docNotFound})
 		return
 	}
 
@@ -255,53 +313,32 @@ func UpdateDocumentStaff(c *gin.Context) {
 		updates["subject"] = subject
 	}
 
+	// REFACTOR COGNITIVE COMPLEXITY START FROM THIS
+
 	fileHeader, err := c.FormFile("file")
 	if err == nil {
-		src, err := fileHeader.Open()
+
+		fileUpdates, err := handleDocumentStaffUpload(
+			fileHeader,
+			&document,
+		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Tidak dapat membuka file"})
-			return
-		}
-		defer src.Close()
 
-		fileBytes, err := io.ReadAll(src)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membaca file buffer"})
-			return
-		}
-		reader := bytes.NewReader(fileBytes)
+			if strings.Contains(err.Error(), "format file") {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			}
 
-		ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
-		var resourceType string
-		var folder string
-
-		switch ext {
-		case ".jpg", ".jpeg", ".png", ".gif", ".webp":
-			resourceType = "image"
-			folder = "gambar"
-		case ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx":
-			resourceType = "raw"
-			folder = "document_staff"
-		default:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Format file tidak didukung"})
 			return
 		}
 
-		uploadResult, err := config.UploadToCloudinary(reader, fileHeader.Filename, folder, resourceType)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Upload gagal: " + err.Error()})
-			return
+		for key, value := range fileUpdates {
+			updates[key] = value
 		}
-
-		if document.PublicID != "" {
-			config.DeleteFromCloudinary(document.PublicID, document.ResourceType)
-		}
-
-		updates["file_name"] = fileHeader.Filename
-		updates["file_url"] = uploadResult.SecureURL
-		updates["public_id"] = uploadResult.PublicID
-		updates["resource_type"] = resourceType
 	}
+
+	// REFACTOR COGNITIVE COMPLEXITY END
 
 	if len(updates) > 0 {
 		if err := config.DB.Model(&document).Updates(updates).Error; err != nil {
@@ -335,8 +372,8 @@ func DeleteDocumentStaff(c *gin.Context) {
 	id := c.Param("id")
 	var document models.DocumentStaff
 
-	if err := config.DB.First(&document, "id = ?", id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Dokumen tidak ditemukan"})
+	if err := config.DB.First(&document, idQuery, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": docNotFound})
 		return
 	}
 
@@ -363,8 +400,8 @@ func DownloadDocumentStaff(c *gin.Context) {
 	id := c.Param("id")
 	var document models.DocumentStaff
 
-	if err := config.DB.First(&document, "id = ?", id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Dokumen tidak ditemukan"})
+	if err := config.DB.First(&document, idQuery, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": docNotFound})
 		return
 	}
 

@@ -2,23 +2,49 @@ package middleware
 
 import (
 	"crypto/sha256"
+	"dinsos_kuburaya/config"
+	"dinsos_kuburaya/models"
 	"encoding/hex"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"dinsos_kuburaya/config"
-	"dinsos_kuburaya/models"
-
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
+const (
+	jwtTokenQuery = "jwt_token = ?"
+)
+
+// HELPER REFACTOR COGITIVE COMPLEXITY - REFACTOR THESIS
+func abortUnauthorized(c *gin.Context, hashedToken string, message string, deleteToken bool) {
+	if deleteToken {
+		config.DB.Where(jwtTokenQuery, hashedToken).Delete(&models.SecretToken{})
+	}
+
+	c.JSON(http.StatusUnauthorized, gin.H{
+		"error": message,
+	})
+
+	c.Abort()
+}
+
+func parseJWT(tokenString, secret string) (*jwt.Token, error) {
+	return jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return []byte(secret), nil
+	})
+}
+
+// END HELPER
+
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-
-		// 1. Ambil header Authorization
+		//  Ambil header Authorization
 		tokenString := c.GetHeader("Authorization")
 		if tokenString == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
@@ -28,7 +54,7 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		tokenString = strings.TrimPrefix(tokenString, "Bearer ")
 
-		// 2. HASH token yang diterima untuk dicocokkan dengan database
+		// HASH token yang diterima untuk dicocokkan dengan database
 		hash := sha256.Sum256([]byte(tokenString))
 		hashedToken := hex.EncodeToString(hash[:])
 
@@ -37,82 +63,65 @@ func AuthMiddleware() gin.HandlerFunc {
 			secret = "default_secret"
 		}
 
-		// 3. Parse token untuk validasi JWT
-		token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, jwt.ErrSignatureInvalid
-			}
-			return []byte(secret), nil
-		})
+		// REFACTOR START
 
+		token, err := parseJWT(tokenString, secret)
 		if err != nil {
-			config.DB.Where("jwt_token = ?", hashedToken).Delete(&models.SecretToken{})
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "token invalid"})
-			c.Abort()
+			abortUnauthorized(c, hashedToken, "token invalid", true)
 			return
 		}
 
 		if !token.Valid {
-			config.DB.Where("jwt_token = ?", hashedToken).Delete(&models.SecretToken{})
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "token invalid"})
-			c.Abort()
+			abortUnauthorized(c, hashedToken, "token invalid", true)
 			return
 		}
 
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
-			config.DB.Where("jwt_token = ?", hashedToken).Delete(&models.SecretToken{})
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token claims"})
-			c.Abort()
+			abortUnauthorized(c, hashedToken, "invalid token claims", true)
 			return
 		}
 
-		// 4. Validasi exp claim
+		// Validasi exp claim
 		exp, ok := claims["exp"].(float64)
 		if !ok {
-			config.DB.Where("jwt_token = ?", hashedToken).Delete(&models.SecretToken{})
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid exp claim"})
-			c.Abort()
+			abortUnauthorized(c, hashedToken, "invalid exp claim", true)
 			return
 		}
 
 		if time.Now().Unix() > int64(exp) {
-			config.DB.Where("jwt_token = ?", hashedToken).Delete(&models.SecretToken{})
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "token expired"})
-			c.Abort()
+			abortUnauthorized(c, hashedToken, "token expired", true)
 			return
 		}
 
-		// 5. Validasi user_id claim
+		// Validasi user_id claim
 		userID, ok := claims["user_id"].(string)
 		if !ok || userID == "" {
-			config.DB.Where("jwt_token = ?", hashedToken).Delete(&models.SecretToken{})
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user_id claim"})
-			c.Abort()
+			abortUnauthorized(c, hashedToken, "invalid user_id claim", true)
 			return
 		}
 
-		// 6. Cek hashed token di database
+		//  Cek hashed token di database
 		var st models.SecretToken
-		if err := config.DB.Preload("User").Where("jwt_token = ?", hashedToken).First(&st).Error; err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "session expired"})
-			c.Abort()
+		if err := config.DB.Preload("User").
+			Where(jwtTokenQuery, hashedToken).
+			First(&st).Error; err != nil {
+
+			abortUnauthorized(c, hashedToken, "session expired", false)
 			return
 		}
 
-		// 7. Cek expiration di database
+		//  Cek expiration di database
 		if time.Now().After(st.ExpiresAt) {
-			config.DB.Where("jwt_token = ?", hashedToken).Delete(&models.SecretToken{})
+			config.DB.Where(jwtTokenQuery, hashedToken).Delete(&models.SecretToken{})
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "token expired"})
 			c.Abort()
 			return
 		}
 
-		// 8. Cek user masih ada
+		//  Cek user masih ada
 		if st.User.ID == "" {
-			config.DB.Where("jwt_token = ?", hashedToken).Delete(&models.SecretToken{})
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
-			c.Abort()
+			abortUnauthorized(c, hashedToken, "user not found", true)
 			return
 		}
 

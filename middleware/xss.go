@@ -47,51 +47,77 @@ func checkJSON(v interface{}) bool {
 	}
 }
 
-func XSSBlocker() gin.HandlerFunc {
-	return func(c *gin.Context) {
+// REFACTOR ISSUE COGNITIVE COMPLEXITY - THESIS START HERE
+func rejectRequest(c *gin.Context, message string) {
+	c.JSON(http.StatusBadRequest, gin.H{
+		"error": message,
+	})
+	c.Abort()
+}
 
-		// === 1. Cek query params ===
-		for key, vals := range c.Request.URL.Query() {
-			if containsIllegal(key) {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Query key mengandung karakter ilegal"})
-				c.Abort()
-				return
-			}
+func validateQueryParams(c *gin.Context) bool {
+	for key, vals := range c.Request.URL.Query() {
 
-			for _, v := range vals {
-				if containsIllegal(v) {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Query value mengandung karakter ilegal"})
-					c.Abort()
-					return
-				}
-			}
+		if containsIllegal(key) {
+			rejectRequest(c, "Query key mengandung karakter ilegal")
+			return false
 		}
 
-		// === 2. Cek form / multipart ===
-		contentType := c.GetHeader("Content-Type")
-		if strings.Contains(contentType, "multipart/form-data") {
-			c.Next()
+		for _, v := range vals {
+			if containsIllegal(v) {
+				rejectRequest(c, "Query value mengandung karakter ilegal")
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func validateFormData(c *gin.Context) bool {
+	contentType := c.GetHeader("Content-Type")
+
+	if strings.Contains(contentType, "multipart/form-data") {
+		return true
+	}
+
+	_ = c.Request.ParseMultipartForm(100 << 20)
+
+	for key, vals := range c.Request.PostForm {
+
+		if containsIllegal(key) {
+			rejectRequest(c, "Form key mengandung karakter ilegal")
+			return false
+		}
+
+		for _, v := range vals {
+			if containsIllegal(v) {
+				rejectRequest(c, "Form value mengandung karakter ilegal")
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// END THIS REFACTOR
+
+func XSSBlocker() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// ===  Cek query params ===
+		// START HERE REFACTOR
+		if !validateQueryParams(c) {
 			return
 		}
 
-		_ = c.Request.ParseMultipartForm(100 << 20)
-
-		for key, vals := range c.Request.PostForm {
-			if containsIllegal(key) {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Form key mengandung karakter ilegal"})
-				c.Abort()
-				return
-			}
-			for _, v := range vals {
-				if containsIllegal(v) {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Form value mengandung karakter ilegal"})
-					c.Abort()
-					return
-				}
-			}
+		// ===  Cek form / multipart ===
+		if !validateFormData(c) {
+			return
 		}
 
-		// === 3. Cek JSON body ===
+		// END THIS REFACTOR
+		// ===  Cek JSON body ===
 		ct := strings.ToLower(c.GetHeader("Content-Type"))
 		if strings.Contains(ct, "application/json") {
 			body, err := io.ReadAll(c.Request.Body)

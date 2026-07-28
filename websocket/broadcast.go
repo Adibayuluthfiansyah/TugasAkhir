@@ -2,9 +2,11 @@ package websocket
 
 import "log"
 
+const hubNotInitialized = "[WebSocket] Hub belum diinisialisasi"
+
 func BroadcastToUser(userID, eventType, message string) {
 	if HubInstance == nil {
-		log.Println("[WebSocket] Hub belum diinisialisasi")
+		log.Println(hubNotInitialized)
 		return
 	}
 
@@ -19,7 +21,7 @@ func BroadcastToUser(userID, eventType, message string) {
 
 func BroadcastToAll(eventType, message string) {
 	if HubInstance == nil {
-		log.Println("[WebSocket] Hub belum diinisialisasi")
+		log.Println(hubNotInitialized)
 		return
 	}
 
@@ -35,7 +37,7 @@ func BroadcastToAll(eventType, message string) {
 
 func Broadcast(event NotificationEvent) {
 	if HubInstance == nil {
-		log.Println("[WebSocket] Hub belum diinisialisasi")
+		log.Println(hubNotInitialized)
 		return
 	}
 	HubInstance.Emit(event)
@@ -43,7 +45,7 @@ func Broadcast(event NotificationEvent) {
 
 func BroadcastUserChanged(eventType string, payload interface{}) {
 	if HubInstance == nil {
-		log.Println("[WebSocket] Hub belum diinisialisasi")
+		log.Println(hubNotInitialized)
 		return
 	}
 
