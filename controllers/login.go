@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 
 	"dinsos_kuburaya/config"
 	"dinsos_kuburaya/models"
@@ -46,10 +48,14 @@ func Login(c *gin.Context) {
 		secretKey = "default_secret"
 	}
 
+	// REFACTOR PERFORMANCE: tambah jti (UUID) agar setiap JWT unik
+	// Sebelumnya: tanpa jti -> 2 request di detik yang sama menghasilkan JWT identical
+	// -> hash SHA256 identical -> Error 1062 duplicate entry di tabel secret_tokens
 	claims := jwt.MapClaims{
 		"user_id": user.ID,
 		"exp":     time.Now().Add(14 * 24 * time.Hour).Unix(),
 		"role":    user.Role,
+		"jti":     uuid.New().String(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -67,16 +73,10 @@ func Login(c *gin.Context) {
 		device = "unknown"
 	}
 
-	db.Where("expires_at < ?", time.Now()).Delete(&models.SecretToken{})
-	db.Where("user_id = ? AND device = ?", user.ID, device).Delete(&models.SecretToken{})
-
-	var userTokens []models.SecretToken
-	db.Where("user_id = ?", user.ID).Order("created_at DESC").Find(&userTokens)
-	if len(userTokens) >= 2 {
-		oldest := userTokens[len(userTokens)-1]
-		db.Delete(&oldest)
-	}
-
+	// REFACTOR PERFORMANCE: atomic transaction untuk mencegah race condition
+	// Sebelumnya: DELETE + INSERT sebagai statement terpisah -> goroutine A hapus,
+	// goroutine B hapus token yang sama, lalu INSERT bareng -> salah satu gagal
+	// Sekarang: semua operasi dalam 1 transaksi, kalo gagal di-rollback.
 	secretToken := models.SecretToken{
 		JwtToken:  hashedToken,
 		UserID:    user.ID,
@@ -84,7 +84,26 @@ func Login(c *gin.Context) {
 		ExpiresAt: time.Now().Add(14 * 24 * time.Hour),
 	}
 
-	if err := db.Create(&secretToken).Error; err != nil {
+	err = db.Transaction(func(tx *gorm.DB) error {
+		// Hapus token expired
+		tx.Where("expires_at < ?", time.Now()).Delete(&models.SecretToken{})
+
+		// Hapus token lama device yang sama (1 device 1 session)
+		tx.Where("user_id = ? AND device = ?", user.ID, device).Delete(&models.SecretToken{})
+
+		// Batasi maksimal 2 token per user (hapus paling tua)
+		var userTokens []models.SecretToken
+		tx.Where("user_id = ?", user.ID).Order("created_at DESC").Find(&userTokens)
+		if len(userTokens) >= 2 {
+			oldest := userTokens[len(userTokens)-1]
+			tx.Delete(&oldest)
+		}
+
+		// Insert token baru
+		return tx.Create(&secretToken).Error
+	})
+
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "Gagal menyimpan token"})
 		return
 	}
