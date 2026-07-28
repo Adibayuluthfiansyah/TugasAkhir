@@ -1,14 +1,15 @@
 package controllers
 
 import (
-	"dinsos_kuburaya/config"
-	"dinsos_kuburaya/models"
-	"dinsos_kuburaya/services"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	"dinsos_kuburaya/config"
+	"dinsos_kuburaya/models"
+	"dinsos_kuburaya/services"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -36,36 +37,78 @@ func hashPassword(pass string) (string, error) {
 }
 
 // HELPER REFACTOR COGITIVE COMPLEXITY - REFACTOR THESIS
-func handlePasswordUpdate(user models.User,
-	oldPassword string,
-	newPassword string,
-	updates map[string]interface{},
-) error {
+func handlePasswordUpdate(c *gin.Context, user models.User, oldPassword, newPassword string, updates map[string]interface{}) bool {
 	if oldPassword == "" && newPassword == "" {
+		return true
+	}
+	if oldPassword == "" || newPassword == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Password lama dan baru harus diisi"})
+		return false
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Password lama salah"})
+		return false
+	}
+	if len(newPassword) < 6 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Password baru minimal 6 karakter"})
+		return false
+	}
+	hashed, err := hashPassword(newPassword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": errHashPassword})
+		return false
+	}
+	updates["password"] = hashed
+	return true
+}
+
+// END HELPER
+
+// REFACTOR COGNITIVE COMPLEXITY START HERE
+func handlePhotoUpload(c *gin.Context, user models.User, updates map[string]interface{}) error {
+	file, err := c.FormFile("photo")
+	if err != nil {
 		return nil
 	}
 
-	if oldPassword == "" || newPassword == "" {
-		return fmt.Errorf("Password lama dan baru harus diisi")
+	if file.Size > 5<<20 {
+		return fmt.Errorf("Ukuran file maksimal 5MB")
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)); err != nil {
-		return fmt.Errorf("Password lama salah")
-	}
-
-	if len(newPassword) < 6 {
-		return fmt.Errorf("Password baru minimal 6 karakter")
-	}
-
-	hashed, err := hashPassword(newPassword)
+	f, err := file.Open()
 	if err != nil {
-		return fmt.Errorf(errHashPassword)
+		return fmt.Errorf("Gagal membuka file")
+	}
+	defer f.Close()
+
+	userID := user.ID
+	originalFileName := file.Filename
+
+	ext := ""
+	if dot := strings.LastIndex(originalFileName, "."); dot != -1 {
+		ext = originalFileName[dot:]
 	}
 
-	updates["password"] = hashed
+	timestamp := time.Now().Unix()
+	uniqueFileName := fmt.Sprintf("user-%s-%d%s", userID[:8], timestamp, ext)
 
+	uploadRes, err := config.UploadToCloudinary(f, uniqueFileName, "users", "image")
+	if err != nil {
+		return fmt.Errorf("Gagal upload foto: %v", err)
+	}
+
+	if user.PhotoID != nil && *user.PhotoID != "" {
+		if *user.PhotoID != uploadRes.PublicID {
+			config.DeleteFromCloudinary(*user.PhotoID, "image")
+		}
+	}
+
+	updates["photo_url"] = uploadRes.SecureURL
+	updates["photo_id"] = uploadRes.PublicID
 	return nil
 }
+
+// REFACTOR COGNITIVE COMPLEXITY END HERE
 
 // CREATE USERS
 func CreateUserWithRole(c *gin.Context, role string) {
@@ -231,6 +274,7 @@ func GetMe(c *gin.Context) {
 }
 
 // UPDATE USERS
+// REFACTOR COGNITIVE COMPLEXITY START HERE
 func UpdateUser(c *gin.Context) {
 	id := c.Param("id")
 	var user models.User
@@ -277,74 +321,13 @@ func UpdateUser(c *gin.Context) {
 		updates["role"] = input.Role
 	}
 
-	// Password logic - REFACTOR COGNITIVE COMPLEXITY
-	if err := handlePasswordUpdate(
-		user,
-		oldPassword,
-		newPassword,
-		updates,
-	); err != nil {
-
-		switch err.Error() {
-
-		case "Password lama dan baru harus diisi":
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-
-		case "Password lama salah":
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-
-		case "Password baru minimal 6 karakter":
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-
-		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		}
-
+	if !handlePasswordUpdate(c, user, oldPassword, newPassword, updates) {
 		return
 	}
 
-	// END REFACTOR COGNITIVE COMPLEXITY
-
-	// Photo upload
-	file, err := c.FormFile("photo")
-	if err == nil {
-		if file.Size > 5<<20 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Ukuran file maksimal 5MB"})
-			return
-		}
-
-		f, err := file.Open()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuka file"})
-			return
-		}
-		defer f.Close()
-
-		userID := user.ID
-		originalFileName := file.Filename
-
-		ext := ""
-		if dot := strings.LastIndex(originalFileName, "."); dot != -1 {
-			ext = originalFileName[dot:]
-		}
-
-		timestamp := time.Now().Unix()
-		uniqueFileName := fmt.Sprintf("user-%s-%d%s", userID[:8], timestamp, ext)
-
-		uploadRes, err := config.UploadToCloudinary(f, uniqueFileName, "users", "image")
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal upload foto: " + err.Error()})
-			return
-		}
-
-		if user.PhotoID != nil && *user.PhotoID != "" {
-			if *user.PhotoID != uploadRes.PublicID {
-				config.DeleteFromCloudinary(*user.PhotoID, "image")
-			}
-		}
-
-		updates["photo_url"] = uploadRes.SecureURL
-		updates["photo_id"] = uploadRes.PublicID
+	if err := handlePhotoUpload(c, user, updates); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
 	if len(updates) > 0 {
@@ -369,6 +352,8 @@ func UpdateUser(c *gin.Context) {
 		"user":    user,
 	})
 }
+
+// REFACTOR COGNITIVE COMPLEXITY END HERE
 
 // RESET PASSWORD (only superadmin)
 func ResetPassword(c *gin.Context) {

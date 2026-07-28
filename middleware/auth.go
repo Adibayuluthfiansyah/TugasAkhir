@@ -42,90 +42,85 @@ func parseJWT(tokenString, secret string) (*jwt.Token, error) {
 
 // END HELPER
 
+// REFACTOR COGNITIVE COMPLEXITY START HERE
+func validateToken(c *gin.Context) (*models.User, bool) {
+	tokenString := c.GetHeader("Authorization")
+	if tokenString == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
+		c.Abort()
+		return nil, false
+	}
+
+	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+
+	hash := sha256.Sum256([]byte(tokenString))
+	hashedToken := hex.EncodeToString(hash[:])
+
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		secret = "default_secret"
+	}
+
+	token, err := parseJWT(tokenString, secret)
+	if err != nil || !token.Valid {
+		abortUnauthorized(c, hashedToken, "token invalid", true)
+		return nil, false
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		abortUnauthorized(c, hashedToken, "invalid token claims", true)
+		return nil, false
+	}
+
+	exp, ok := claims["exp"].(float64)
+	if !ok {
+		abortUnauthorized(c, hashedToken, "invalid exp claim", true)
+		return nil, false
+	}
+	if time.Now().Unix() > int64(exp) {
+		abortUnauthorized(c, hashedToken, "token expired", true)
+		return nil, false
+	}
+
+	userID, ok := claims["user_id"].(string)
+	if !ok || userID == "" {
+		abortUnauthorized(c, hashedToken, "invalid user_id claim", true)
+		return nil, false
+	}
+
+	var st models.SecretToken
+	if err := config.DB.Preload("User").
+		Where(jwtTokenQuery, hashedToken).
+		First(&st).Error; err != nil {
+		abortUnauthorized(c, hashedToken, "session expired", false)
+		return nil, false
+	}
+
+	if time.Now().After(st.ExpiresAt) {
+		config.DB.Where(jwtTokenQuery, hashedToken).Delete(&models.SecretToken{})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "token expired"})
+		c.Abort()
+		return nil, false
+	}
+
+	if st.User.ID == "" {
+		abortUnauthorized(c, hashedToken, "user not found", true)
+		return nil, false
+	}
+
+	return &st.User, true
+}
+
+// REFACTOR COGNITIVE COMPLEXITY END HERE
+
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		//  Ambil header Authorization
-		tokenString := c.GetHeader("Authorization")
-		if tokenString == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
-			c.Abort()
-			return
-		}
-
-		tokenString = strings.TrimPrefix(tokenString, "Bearer ")
-
-		// HASH token yang diterima untuk dicocokkan dengan database
-		hash := sha256.Sum256([]byte(tokenString))
-		hashedToken := hex.EncodeToString(hash[:])
-
-		secret := os.Getenv("JWT_SECRET")
-		if secret == "" {
-			secret = "default_secret"
-		}
-
-		// REFACTOR START
-
-		token, err := parseJWT(tokenString, secret)
-		if err != nil {
-			abortUnauthorized(c, hashedToken, "token invalid", true)
-			return
-		}
-
-		if !token.Valid {
-			abortUnauthorized(c, hashedToken, "token invalid", true)
-			return
-		}
-
-		claims, ok := token.Claims.(jwt.MapClaims)
+		user, ok := validateToken(c)
 		if !ok {
-			abortUnauthorized(c, hashedToken, "invalid token claims", true)
 			return
 		}
-
-		// Validasi exp claim
-		exp, ok := claims["exp"].(float64)
-		if !ok {
-			abortUnauthorized(c, hashedToken, "invalid exp claim", true)
-			return
-		}
-
-		if time.Now().Unix() > int64(exp) {
-			abortUnauthorized(c, hashedToken, "token expired", true)
-			return
-		}
-
-		// Validasi user_id claim
-		userID, ok := claims["user_id"].(string)
-		if !ok || userID == "" {
-			abortUnauthorized(c, hashedToken, "invalid user_id claim", true)
-			return
-		}
-
-		//  Cek hashed token di database
-		var st models.SecretToken
-		if err := config.DB.Preload("User").
-			Where(jwtTokenQuery, hashedToken).
-			First(&st).Error; err != nil {
-
-			abortUnauthorized(c, hashedToken, "session expired", false)
-			return
-		}
-
-		//  Cek expiration di database
-		if time.Now().After(st.ExpiresAt) {
-			config.DB.Where(jwtTokenQuery, hashedToken).Delete(&models.SecretToken{})
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "token expired"})
-			c.Abort()
-			return
-		}
-
-		//  Cek user masih ada
-		if st.User.ID == "" {
-			abortUnauthorized(c, hashedToken, "user not found", true)
-			return
-		}
-
-		c.Set("user", st.User)
+		c.Set("user", *user)
 		c.Next()
 	}
 }
