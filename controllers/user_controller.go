@@ -1,19 +1,23 @@
 package controllers
 
 import (
+	"dinsos_kuburaya/config"
+	"dinsos_kuburaya/models"
+	"dinsos_kuburaya/services"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
-	"dinsos_kuburaya/config"
-	"dinsos_kuburaya/models"
-	"dinsos_kuburaya/services"
-
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+)
+
+const (
+	errUserNotFound = "User tidak ditemukan"
+	errHashPassword = "Gagal mengenkripsi password"
 )
 
 var allowedRoles = map[string]bool{
@@ -49,7 +53,7 @@ func CreateUserWithRole(c *gin.Context, role string) {
 
 	hashed, err := hashPassword(input.Password)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengenkripsi password"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": errHashPassword})
 		return
 	}
 	input.Password = hashed
@@ -141,9 +145,9 @@ func GetUserByID(c *gin.Context) {
 	var user models.User
 
 	if err := config.DB.Select("id", "name", "username", "role", "created_at", "updated_at").
-		Where("id = ?", id).First(&user).Error; err != nil {
+		Where(idQuery, id).First(&user).Error; err != nil {
 
-		c.JSON(http.StatusNotFound, gin.H{"error": "User tidak ditemukan"})
+		c.JSON(http.StatusNotFound, gin.H{"error": errUserNotFound})
 		return
 	}
 
@@ -199,8 +203,8 @@ func UpdateUser(c *gin.Context) {
 	id := c.Param("id")
 	var user models.User
 
-	if err := config.DB.Where("id = ?", id).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User tidak ditemukan"})
+	if err := config.DB.Where(idQuery, id).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": errUserNotFound})
 		return
 	}
 
@@ -261,7 +265,7 @@ func UpdateUser(c *gin.Context) {
 
 		hashed, err := hashPassword(newPassword)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengenkripsi password"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": errHashPassword})
 			return
 		}
 
@@ -301,7 +305,6 @@ func UpdateUser(c *gin.Context) {
 		}
 
 		if user.PhotoID != nil && *user.PhotoID != "" {
-
 			if *user.PhotoID != uploadRes.PublicID {
 				config.DeleteFromCloudinary(*user.PhotoID, "image")
 			}
@@ -318,7 +321,7 @@ func UpdateUser(c *gin.Context) {
 		}
 	}
 
-	config.DB.Where("id = ?", id).First(&user)
+	config.DB.Where(idQuery, id).First(&user)
 
 	currentUser := c.MustGet("user").(models.User)
 	services.CreateActivity(
@@ -345,15 +348,15 @@ func ResetPassword(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := config.DB.Where("id = ?", id).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User tidak ditemukan"})
+	if err := config.DB.Where(idQuery, id).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": errUserNotFound})
 		return
 	}
 
 	defaultPassword := "123456"
 	hashed, err := hashPassword(defaultPassword)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengenkripsi password"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": errHashPassword})
 		return
 	}
 
@@ -379,12 +382,12 @@ func DeleteUser(c *gin.Context) {
 	id := c.Param("id")
 
 	var user models.User
-	if err := config.DB.Where("id = ?", id).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User tidak ditemukan"})
+	if err := config.DB.Where(idQuery, id).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": errUserNotFound})
 		return
 	}
 
-	if err := config.DB.Delete(&models.User{}, "id = ?", id).Error; err != nil {
+	if err := config.DB.Delete(&models.User{}, idQuery, id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menghapus user"})
 		return
 	}
@@ -428,7 +431,7 @@ func StorePushToken(c *gin.Context) {
 	}
 
 	if err := config.DB.Model(&models.User{}).
-		Where("id = ?", user.ID).
+		Where(idQuery, user.ID).
 		Update("push_token", req.Token).Error; err != nil {
 		log.Println("[PushToken] DB update error:", err)
 		return
