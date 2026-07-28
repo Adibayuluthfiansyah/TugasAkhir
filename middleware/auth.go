@@ -2,14 +2,13 @@ package middleware
 
 import (
 	"crypto/sha256"
+	"dinsos_kuburaya/config"
+	"dinsos_kuburaya/models"
 	"encoding/hex"
 	"net/http"
 	"os"
 	"strings"
 	"time"
-
-	"dinsos_kuburaya/config"
-	"dinsos_kuburaya/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -24,7 +23,11 @@ func abortUnauthorized(c *gin.Context, hashedToken string, message string, delet
 	if deleteToken {
 		config.DB.Where(jwtTokenQuery, hashedToken).Delete(&models.SecretToken{})
 	}
-	c.JSON(http.StatusUnauthorized, gin.H{"error": message})
+
+	c.JSON(http.StatusUnauthorized, gin.H{
+		"error": message,
+	})
+
 	c.Abort()
 }
 
@@ -37,6 +40,9 @@ func parseJWT(tokenString, secret string) (*jwt.Token, error) {
 	})
 }
 
+// END HELPER
+
+// REFACTOR COGNITIVE COMPLEXITY START HERE
 func validateToken(c *gin.Context) (*models.User, bool) {
 	tokenString := c.GetHeader("Authorization")
 	if tokenString == "" {
@@ -44,6 +50,7 @@ func validateToken(c *gin.Context) (*models.User, bool) {
 		c.Abort()
 		return nil, false
 	}
+
 	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
 
 	hash := sha256.Sum256([]byte(tokenString))
@@ -105,7 +112,7 @@ func validateToken(c *gin.Context) (*models.User, bool) {
 	return &st.User, true
 }
 
-// END HELPER
+// REFACTOR COGNITIVE COMPLEXITY END HERE
 
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {

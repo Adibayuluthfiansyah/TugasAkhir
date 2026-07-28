@@ -22,8 +22,10 @@ func containsIllegal(s string) bool {
 // pemeriksaan rekursif JSON
 func checkJSON(v interface{}) bool {
 	switch t := v.(type) {
+
 	case string:
 		return containsIllegal(t)
+
 	case []interface{}:
 		for _, item := range t {
 			if checkJSON(item) {
@@ -31,6 +33,7 @@ func checkJSON(v interface{}) bool {
 			}
 		}
 		return false
+
 	case map[string]interface{}:
 		for _, val := range t {
 			if checkJSON(val) {
@@ -38,6 +41,7 @@ func checkJSON(v interface{}) bool {
 			}
 		}
 		return false
+
 	default:
 		return false
 	}
@@ -97,6 +101,7 @@ func validateFormData(c *gin.Context) bool {
 	return true
 }
 
+// REFACTOR COGNITIVE COMPLEXITY ADDITION START HERE
 func validateJSONBody(c *gin.Context) bool {
 	ct := strings.ToLower(c.GetHeader("Content-Type"))
 	if !strings.Contains(ct, "application/json") {
@@ -123,6 +128,7 @@ func validateJSONBody(c *gin.Context) bool {
 	return true
 }
 
+// REFACTOR COGNITIVE COMPLEXITY END HERE
 // END THIS REFACTOR
 
 func XSSBlocker() gin.HandlerFunc {
@@ -142,6 +148,7 @@ func XSSBlocker() gin.HandlerFunc {
 		if !validateJSONBody(c) {
 			return
 		}
+
 		c.Next()
 	}
 }
