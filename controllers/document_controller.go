@@ -2,6 +2,9 @@ package controllers
 
 import (
 	"bytes"
+	"dinsos_kuburaya/config"
+	"dinsos_kuburaya/models"
+	"dinsos_kuburaya/services"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -9,11 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"dinsos_kuburaya/config"
-	"dinsos_kuburaya/models"
-	"dinsos_kuburaya/services"
-
 	"github.com/gin-gonic/gin"
+)
+
+const (
+	idQuery     = "id = ?"
+	docNotFound = "Dokumen tidak ditemukan"
 )
 
 // =======================
@@ -57,9 +61,6 @@ func CreateDocument(c *gin.Context) {
 	case ".jpg", ".jpeg", ".png", ".gif", ".webp":
 		resourceType = "image"
 		folder = "gambar"
-	case ".pdf":
-		resourceType = "raw"
-		folder = "arsip"
 	default:
 		resourceType = "raw"
 		folder = "arsip"
@@ -139,8 +140,8 @@ func GetDocumentByID(c *gin.Context) {
 	id := c.Param("id")
 	var document models.Document
 
-	if err := config.DB.Preload("User").First(&document, "id = ?", id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Dokumen tidak ditemukan"})
+	if err := config.DB.Preload("User").First(&document, idQuery, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": docNotFound})
 		return
 	}
 
@@ -154,8 +155,8 @@ func UpdateDocument(c *gin.Context) {
 	id := c.Param("id")
 	var document models.Document
 
-	if err := config.DB.First(&document, "id = ?", id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Dokumen tidak ditemukan"})
+	if err := config.DB.First(&document, idQuery, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": docNotFound})
 		return
 	}
 
@@ -193,7 +194,6 @@ func UpdateDocument(c *gin.Context) {
 // GET DOCUMENT SUMMARY (PER BULAN, PER MINGGU)
 // =======================
 func GetDocumentSummary(c *gin.Context) {
-
 	yearStr := c.DefaultQuery("year", "")
 	monthStr := c.DefaultQuery("month", "")
 
@@ -289,8 +289,8 @@ func DeleteDocument(c *gin.Context) {
 	id := c.Param("id")
 	var document models.Document
 
-	if err := config.DB.First(&document, "id = ?", id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Dokumen tidak ditemukan"})
+	if err := config.DB.First(&document, idQuery, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": docNotFound})
 		return
 	}
 
@@ -318,8 +318,8 @@ func DownloadDocument(c *gin.Context) {
 	id := c.Param("id")
 	var document models.Document
 
-	if err := config.DB.First(&document, "id = ?", id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Dokumen tidak ditemukan"})
+	if err := config.DB.First(&document, idQuery, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": docNotFound})
 		return
 	}
 
