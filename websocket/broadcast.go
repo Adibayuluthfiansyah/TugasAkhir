@@ -6,7 +6,7 @@ const hubNotInitialized = "[WebSocket] Hub belum diinisialisasi"
 
 func BroadcastToUser(userID, eventType, message string) {
 	if HubInstance == nil {
-		log.Println("[WebSocket] Hub belum diinisialisasi")
+		log.Println(hubNotInitialized)
 		return
 	}
 
