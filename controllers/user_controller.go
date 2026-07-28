@@ -35,6 +35,38 @@ func hashPassword(pass string) (string, error) {
 	return string(hashed), err
 }
 
+// HELPER REFACTOR COGITIVE COMPLEXITY - REFACTOR THESIS
+func handlePasswordUpdate(user models.User,
+	oldPassword string,
+	newPassword string,
+	updates map[string]interface{},
+) error {
+	if oldPassword == "" && newPassword == "" {
+		return nil
+	}
+
+	if oldPassword == "" || newPassword == "" {
+		return fmt.Errorf("Password lama dan baru harus diisi")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)); err != nil {
+		return fmt.Errorf("Password lama salah")
+	}
+
+	if len(newPassword) < 6 {
+		return fmt.Errorf("Password baru minimal 6 karakter")
+	}
+
+	hashed, err := hashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf(errHashPassword)
+	}
+
+	updates["password"] = hashed
+
+	return nil
+}
+
 // CREATE USERS
 func CreateUserWithRole(c *gin.Context, role string) {
 	if !allowedRoles[role] {
@@ -245,32 +277,33 @@ func UpdateUser(c *gin.Context) {
 		updates["role"] = input.Role
 	}
 
-	// Password logic
-	if oldPassword != "" || newPassword != "" {
-		if oldPassword == "" || newPassword == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Password lama dan baru harus diisi"})
-			return
+	// Password logic - REFACTOR COGNITIVE COMPLEXITY
+	if err := handlePasswordUpdate(
+		user,
+		oldPassword,
+		newPassword,
+		updates,
+	); err != nil {
+
+		switch err.Error() {
+
+		case "Password lama dan baru harus diisi":
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+
+		case "Password lama salah":
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+
+		case "Password baru minimal 6 karakter":
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
 
-		err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword))
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Password lama salah"})
-			return
-		}
-
-		if len(newPassword) < 6 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Password baru minimal 6 karakter"})
-			return
-		}
-
-		hashed, err := hashPassword(newPassword)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": errHashPassword})
-			return
-		}
-
-		updates["password"] = hashed
+		return
 	}
+
+	// END REFACTOR COGNITIVE COMPLEXITY
 
 	// Photo upload
 	file, err := c.FormFile("photo")
