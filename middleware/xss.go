@@ -22,10 +22,8 @@ func containsIllegal(s string) bool {
 // pemeriksaan rekursif JSON
 func checkJSON(v interface{}) bool {
 	switch t := v.(type) {
-
 	case string:
 		return containsIllegal(t)
-
 	case []interface{}:
 		for _, item := range t {
 			if checkJSON(item) {
@@ -33,7 +31,6 @@ func checkJSON(v interface{}) bool {
 			}
 		}
 		return false
-
 	case map[string]interface{}:
 		for _, val := range t {
 			if checkJSON(val) {
@@ -41,7 +38,6 @@ func checkJSON(v interface{}) bool {
 			}
 		}
 		return false
-
 	default:
 		return false
 	}
@@ -101,6 +97,32 @@ func validateFormData(c *gin.Context) bool {
 	return true
 }
 
+func validateJSONBody(c *gin.Context) bool {
+	ct := strings.ToLower(c.GetHeader("Content-Type"))
+	if !strings.Contains(ct, "application/json") {
+		return true
+	}
+
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil || len(body) == 0 {
+		return true
+	}
+
+	var jsonData interface{}
+	if json.Unmarshal(body, &jsonData) != nil {
+		return true
+	}
+
+	if checkJSON(jsonData) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Body JSON mengandung karakter ilegal"})
+		c.Abort()
+		return false
+	}
+
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+	return true
+}
+
 // END THIS REFACTOR
 
 func XSSBlocker() gin.HandlerFunc {
@@ -116,24 +138,10 @@ func XSSBlocker() gin.HandlerFunc {
 			return
 		}
 
-		// END THIS REFACTOR
 		// ===  Cek JSON body ===
-		ct := strings.ToLower(c.GetHeader("Content-Type"))
-		if strings.Contains(ct, "application/json") {
-			body, err := io.ReadAll(c.Request.Body)
-			if err == nil && len(body) > 0 {
-				var jsonData interface{}
-				if json.Unmarshal(body, &jsonData) == nil {
-					if checkJSON(jsonData) {
-						c.JSON(http.StatusBadRequest, gin.H{"error": "Body JSON mengandung karakter ilegal"})
-						c.Abort()
-						return
-					}
-				}
-				c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
-			}
+		if !validateJSONBody(c) {
+			return
 		}
-
 		c.Next()
 	}
 }
